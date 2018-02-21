@@ -176,7 +176,7 @@ host_config_dir = ENV['OAH_CONFIG_DIR'] ? "#{host_project_dir}/#{ENV['OAH_CONFIG
 #TODO add support for docker, runc and kubectl
 oah_env_type = ENV['OAH_ENV_TYPE'] || 'vagrant'
 
-default_config_file = "#{host_oah_dir}/default.oah-config.yml"
+default_config_file = "#{host_oah_env_dir}/default.oah-config.yml"
 unless File.exist?(default_config_file)
   raise_message "Configuration file not found! Expected in #{default_config_file}"
 end
