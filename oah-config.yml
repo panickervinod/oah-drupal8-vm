@@ -4,8 +4,15 @@ oah_env_name: oah-drupal8-vm
 # `vagrant_box` .
 #vagrant_box: virtualenv/ubuntu1404
 vagrant_box: "bento/ubuntu-16.04"
-vagrant_user: vagrant
-oah_user: oahdev
+
+#vagrant_box_url: url_end_point published by installer
+# vagrant_box_url:
+# oah_user to managed oah.user role
+# oah_user: vagrant
+# oah_env_user default user created on guest machine
+oah_env_user : vagrant
+# vagrant user created on guest machine
+vagrant_user: {{ oah_env_user }}
 
 # If you need to run multiple instances of Openhack VM, set a unique hostname,
 # machine name, and IP address for each instance.
@@ -25,7 +32,7 @@ vagrant_synced_folders:
   # The first synced folder will be used for the default Drupal installation, if
   # build_makefile: is 'true'.
   - local_path: {{ oah_dir }}/.oah/data
-    destination: /home/{{ oah_user }}/.oah/data
+    destination: /home/{{ oah_env_user }}/.oah/data
     type: nfs
     create: true
 

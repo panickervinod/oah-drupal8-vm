@@ -227,76 +227,162 @@ ensure_plugins(vconfig['vagrant_plugins'])
 
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+
+  # Set the name of the VM.
+  config.vm.define vconfig['vagrant_machine_name']
+
+  # Networking configuration.
   config.vm.hostname = vconfig['vagrant_hostname']
-  if vconfig['vagrant_ip'] == "0.0.0.0" && Vagrant.has_plugin?("vagrant-auto_network")
-    config.vm.network :private_network, :ip => vconfig['vagrant_ip'], :auto_network => true
-  else
-    config.vm.network :private_network, ip: vconfig['vagrant_ip']
+  config.vm.network :private_network,
+    ip: vconfig['vagrant_ip'],
+    auto_network: vconfig['vagrant_ip'] == '0.0.0.0' && Vagrant.has_plugin?('vagrant-auto_network')
+
+  unless vconfig['vagrant_public_ip'].empty?
+    config.vm.network :public_network,
+      ip: vconfig['vagrant_public_ip'] != '0.0.0.0' ? vconfig['vagrant_public_ip'] : nil
   end
 
-  if !vconfig['vagrant_public_ip'].empty? && vconfig['vagrant_public_ip'] == "0.0.0.0"
-    config.vm.network :public_network
-  elsif !vconfig['vagrant_public_ip'].empty?
-    config.vm.network :public_network, ip: vconfig['vagrant_public_ip']
-  end
+  # config.vm.hostname = vconfig['vagrant_hostname']
+  # if vconfig['vagrant_ip'] == "0.0.0.0" && Vagrant.has_plugin?("vagrant-auto_network")
+  #   config.vm.network :private_network, :ip => vconfig['vagrant_ip'], :auto_network => true
+  # else
+  #   config.vm.network :private_network, ip: vconfig['vagrant_ip']
+  # end
+  #
+  # if !vconfig['vagrant_public_ip'].empty? && vconfig['vagrant_public_ip'] == "0.0.0.0"
+  #   config.vm.network :public_network
+  # elsif !vconfig['vagrant_public_ip'].empty?
+  #   config.vm.network :public_network, ip: vconfig['vagrant_public_ip']
+  # end
 
+  # SSH options.
   config.ssh.insert_key = false
   config.ssh.forward_agent = true
 
+  # Vagrant box.
   config.vm.box = vconfig['vagrant_box']
 
-  # If hostsupdater plugin is installed, add all server names as aliases.
-  if Vagrant.has_plugin?("vagrant-hostsupdater")
-    config.hostsupdater.aliases = []
-    # Add all hosts that aren't defined as Ansible vars.
-    if vconfig['openhackvm_webserver'] == "apache"
-      for host in vconfig['apache_vhosts']
-        unless host['servername'].include? "{{"
-          config.hostsupdater.aliases.push(host['servername'])
-        end
-      end
-    else
-      for host in vconfig['nginx_hosts']
-        unless host['server_name'].include? "{{"
-          config.hostsupdater.aliases.push(host['server_name'])
-        end
-      end
-    end
+  # Display an introduction message after `vagrant up` and `vagrant provision`.
+  config.vm.post_up_message = vconfig.fetch('vagrant_post_up_message', get_default_post_up_message(vconfig))
+
+  # If a hostsfile manager plugin is installed, add all server names as aliases.
+  aliases = get_vhost_aliases(vconfig) - [config.vm.hostname]
+  if Vagrant.has_plugin?('vagrant-hostsupdater')
+    config.hostsupdater.aliases = aliases
+  elsif Vagrant.has_plugin?('vagrant-hostmanager')
+    config.hostmanager.enabled = true
+    config.hostmanager.manage_host = true
+    config.hostmanager.aliases = aliases
   end
 
-  for synced_folder in vconfig['vagrant_synced_folders'];
-    config.vm.synced_folder synced_folder['local_path'], synced_folder['destination'],
-      type: synced_folder['type'],
-      rsync__auto: "true",
+  # # If hostsupdater plugin is installed, add all server names as aliases.
+  # if Vagrant.has_plugin?("vagrant-hostsupdater")
+  #   config.hostsupdater.aliases = []
+  #   # Add all hosts that aren't defined as Ansible vars.
+  #   if vconfig['openhackvm_webserver'] == "apache"
+  #     for host in vconfig['apache_vhosts']
+  #       unless host['servername'].include? "{{"
+  #         config.hostsupdater.aliases.push(host['servername'])
+  #       end
+  #     end
+  #   else
+  #     for host in vconfig['nginx_hosts']
+  #       unless host['server_name'].include? "{{"
+  #         config.hostsupdater.aliases.push(host['server_name'])
+  #       end
+  #     end
+  #   end
+  # end
+
+
+  # Sync the project root directory to /vagrant
+  # TODO Check what happens when the a different user other than vagrant is set
+  unless vconfig['vagrant_synced_folders'].any? { |synced_folder| synced_folder['destination'] == '/vagrant' }
+    vconfig['vagrant_synced_folders'].push(
+      'local_path' => host_project_dir,
+      'destination' => '/vagrant'
+    )
+  end
+
+  # Synced folders.
+  vconfig['vagrant_synced_folders'].each do |synced_folder|
+    options = {
+      type: synced_folder.fetch('type', vconfig['vagrant_synced_folder_default_type']),
       rsync__exclude: synced_folder['excluded_paths'],
-      rsync__args: ["--verbose", "--archive", "--delete", "-z", "--chmod=ugo=rwX"],
+      rsync__args: ['--verbose', '--archive', '--delete', '-z', '--copy-links', '--chmod=ugo=rwX'],
       id: synced_folder['id'],
-      create: synced_folder.include?('create') ? synced_folder['create'] : false,
-      mount_options: synced_folder.include?('mount_options') ? synced_folder['mount_options'] : []
+      create: synced_folder.fetch('create', false),
+      mount_options: synced_folder.fetch('mount_options', []),
+      nfs_udp: synced_folder.fetch('nfs_udp', false)
+    }
+    synced_folder.fetch('options_override', {}).each do |key, value|
+      options[key.to_sym] = value
+    end
+    config.vm.synced_folder synced_folder.fetch('local_path'), synced_folder.fetch('destination'), options
   end
 
-  # Provision using Ansible provisioner if Ansible is installed on host.
+  # for synced_folder in vconfig['vagrant_synced_folders'];
+  #   config.vm.synced_folder synced_folder['local_path'], synced_folder['destination'],
+  #     type: synced_folder['type'],
+  #     rsync__auto: "true",
+  #     rsync__exclude: synced_folder['excluded_paths'],
+  #     rsync__args: ["--verbose", "--archive", "--delete", "-z", "--chmod=ugo=rwX"],
+  #     id: synced_folder['id'],
+  #     create: synced_folder.include?('create') ? synced_folder['create'] : false,
+  #     mount_options: synced_folder.include?('mount_options') ? synced_folder['mount_options'] : []
+  # end
 
-  if which('ansible-playbook')
-    config.vm.provision "ansible" do |ansible|
-      ansible.playbook = "#{dir}/provisioning/oah-install.yml"
-      ansible.sudo = true
-    end
-  else
-    config.vm.provision "ansible_local" do |ansible|
-      ansible.playbook = "../../provisioning/oah-install.yml"
-      ansible.galaxy_role_file = "../../provisioning/oah-requirements.yml"
-    end
+  config.vm.provision provisioner do |ansible|
+    ansible.playbook = playbook
+    ansible.extra_vars = {
+      oah_config_dir: oah_config_dir
+      oah_env_name: oah_env_name
+      oah_env_user: oah_env_user
+    }
+    ansible.raw_arguments = Shellwords.shellsplit(ENV['OAH_ANSIBLE_ARGS']) if ENV['OAH_ANSIBLE_ARGS']
+    ansible.tags = ENV['OAH_ANSIBLE_TAGS']
+    # Use pip to get the latest Ansible version when using ansible_local.
+    provisioner == :ansible_local && ansible.install_mode = 'pip'
   end
+
+
+
+
+  # # Provision using Ansible provisioner if Ansible is installed on host.
+  #
+  # if which('ansible-playbook')
+  #   config.vm.provision "ansible" do |ansible|
+  #     ansible.playbook = "#{dir}/provisioning/oah-install.yml"
+  #     ansible.sudo = true
+  #   end
+  # else
+  #   config.vm.provision "ansible_local" do |ansible|
+  #     ansible.playbook = "../../provisioning/oah-install.yml"
+  #     ansible.galaxy_role_file = "../../provisioning/oah-requirements.yml"
+  #   end
+  # end
+
 
   # VirtualBox.
   config.vm.provider :virtualbox do |v|
+    v.linked_clone = true
     v.name = vconfig['vagrant_hostname']
     v.memory = vconfig['vagrant_memory']
     v.cpus = vconfig['vagrant_cpus']
-    v.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-    v.customize ["modifyvm", :id, "--ioapic", "on"]
+    v.customize ['modifyvm', :id, '--natdnshostresolver1', 'on']
+    v.customize ['modifyvm', :id, '--ioapic', 'on']
+    v.gui = vconfig['vagrant_gui']
   end
+
+  # # VirtualBox.
+  # config.vm.provider :virtualbox do |v|
+  #   v.name = vconfig['vagrant_hostname']
+  #   v.memory = vconfig['vagrant_memory']
+  #   v.cpus = vconfig['vagrant_cpus']
+  #   v.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+  #   v.customize ["modifyvm", :id, "--ioapic", "on"]
+  # end
 
   config.vm.define vconfig['vagrant_machine_name'] do |d|
   end
