@@ -232,6 +232,9 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Set the name of the VM.
   config.vm.define vconfig['vagrant_machine_name']
 
+  # config.vm.define vconfig['vagrant_machine_name'] do |d|
+  # end
+
   # Networking configuration.
   config.vm.hostname = vconfig['vagrant_hostname']
   config.vm.network :private_network,
@@ -384,6 +387,11 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   #   v.customize ["modifyvm", :id, "--ioapic", "on"]
   # end
 
-  config.vm.define vconfig['vagrant_machine_name'] do |d|
+
+
+  # Allow an untracked Vagrantfile to modify the configurations
+  [host_config_dir, host_project_dir].uniq.each do |dir|
+    eval File.read "#{dir}/Vagrantfile.local" if File.exist?("#{dir}/Vagrantfile.local")
   end
+
 end
