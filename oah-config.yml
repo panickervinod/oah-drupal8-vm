@@ -48,7 +48,8 @@ vagrant_cpus: 2
 
 vagrant_plugins:
   - name: vagrant-vbguest
-  - name: vagrant-hostsupdater
+  - name: vagrant-hostmanager
+#  - name: vagrant-hostsupdater
 
 # Minimum required versions.
 oah_vagrant_version_min: '1.8.6'
